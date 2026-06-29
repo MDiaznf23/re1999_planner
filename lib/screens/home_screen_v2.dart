@@ -125,9 +125,7 @@ class _HomeScreenV2State extends State<HomeScreenV2> {
 
             // ── Main Area: Resource summary + Task list ──────────────────
             Expanded(
-              child: state.taskHariIniSudahSelesaiSemua
-                  ? _buildSelesaiView(context)
-                  : _buildMainArea(context, planResult),
+              child: _buildMainArea(context, planResult),
             ),
 
             if (prov.statusMsg.isNotEmpty)
@@ -185,12 +183,16 @@ class _HomeScreenV2State extends State<HomeScreenV2> {
     final state = prov.state!;
     final isWide = MediaQuery.of(context).size.width >= 720;
 
+    final taskArea = state.taskHariIniSudahSelesaiSemua
+        ? _buildSelesaiView(context)
+        : _buildTaskPanel(context, planResult);
+
     if (isWide) {
       return Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(width: 280, child: _buildResourcePanel(context)),
-          Expanded(child: _buildTaskPanel(context, planResult)),
+          Expanded(child: taskArea),
         ],
       );
     } else {
@@ -202,13 +204,13 @@ class _HomeScreenV2State extends State<HomeScreenV2> {
               indicatorColor: kAccent,
               labelColor: kAccent,
               unselectedLabelColor: kSub,
-              tabs: [Tab(text: 'Stok'), Tab(text: 'Tasks')],
+              tabs: [Tab(text: '📦 Stok'), Tab(text: '📋 Tasks')],
             ),
             Expanded(
               child: TabBarView(
                 children: [
                   _buildResourcePanel(context),
-                  _buildTaskPanel(context, planResult),
+                  taskArea,
                 ],
               ),
             ),
