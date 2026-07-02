@@ -204,7 +204,7 @@ class _HomeScreenV2State extends State<HomeScreenV2> {
               indicatorColor: kAccent,
               labelColor: kAccent,
               unselectedLabelColor: kSub,
-              tabs: [Tab(text: '📦 Stok'), Tab(text: '📋 Tasks')],
+              tabs: [Tab(text: 'Stok'), Tab(text: 'Tasks')],
             ),
             Expanded(
               child: TabBarView(

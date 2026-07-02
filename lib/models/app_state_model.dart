@@ -9,7 +9,9 @@ class AppState {
   List<Activity> activities;
   List<String> activitySelesaiHariIni; // id activity yang sudah dicentang
   String hariIniGameDate;
-  Map<String, int> stokAwalHari; // snapshot stok sebelum task hari ini (resourceId -> jumlah)
+  Map<String, int> stokAwalHari; // snapshot stok sebelum task hari ini (resourceId -> jumlah) — DEPRECATED untuk reset, lihat roundHariIniPerActivity
+
+  Map<String, int> roundHariIniPerActivity;
   bool taskHariIniSudahSelesaiSemua; // true kalau sudah masuk history
   List<HistoryEntry> history;
 
@@ -20,6 +22,7 @@ class AppState {
     required this.activitySelesaiHariIni,
     required this.hariIniGameDate,
     required this.stokAwalHari,
+    required this.roundHariIniPerActivity,
     required this.taskHariIniSudahSelesaiSemua,
     required this.history,
   });
@@ -31,6 +34,7 @@ class AppState {
     activitySelesaiHariIni: List<String>.from(j['activity_selesai_hari_ini'] ?? []),
     hariIniGameDate: j['hari_ini_game_date'] ?? '',
     stokAwalHari: Map<String, int>.from(j['stok_awal_hari'] ?? {}),
+    roundHariIniPerActivity: Map<String, int>.from(j['round_hari_ini_per_activity'] ?? {}),
     taskHariIniSudahSelesaiSemua: j['task_hari_ini_sudah_selesai_semua'] ?? false,
     history: (j['history'] as List? ?? []).map((h) => HistoryEntry.fromJson(h)).toList(),
   );
@@ -42,6 +46,7 @@ class AppState {
     'activity_selesai_hari_ini': activitySelesaiHariIni,
     'hari_ini_game_date': hariIniGameDate,
     'stok_awal_hari': stokAwalHari,
+    'round_hari_ini_per_activity': roundHariIniPerActivity,
     'task_hari_ini_sudah_selesai_semua': taskHariIniSudahSelesaiSemua,
     'history': history.map((h) => h.toJson()).toList(),
   };

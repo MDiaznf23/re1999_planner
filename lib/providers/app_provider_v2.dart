@@ -20,48 +20,117 @@ class AppProviderV2 extends ChangeNotifier {
   DailyPlanResult? planResult;
   final _uuid = const Uuid();
 
+  // ── Snapshot plan (freeze saat task pertama dicentang) ─────────────────────
+  List<Map<String, dynamic>>? _planSnapshotRaw;
+
   Future<void> init() async {
     state = await StorageServiceV2.loadState();
     if (state == null) {
       state = StorageServiceV2.createDefaultState();
       await StorageServiceV2.saveState(state!);
     }
-    _checkRollover();
+    await _loadSnapshot();
+    await _checkRollover();
     _recalcPlan();
     loading = false;
     notifyListeners();
   }
 
   void _recalcPlan() {
-    if (state != null) {
+    if (state == null) return;
+    if (_planSnapshotRaw != null) {
+      // Plan sudah di-freeze, jangan hitung ulang dari stok terbaru.
+      planResult = _buildPlanFromSnapshot();
+    } else {
       planResult = hitungDailyPlan(state!);
     }
   }
+
+  DailyPlanResult _buildPlanFromSnapshot() {
+    final items = <PlanResultItem>[];
+    int energiSisa = 0;
+    List<String> peringatan = [];
+
+    for (final snap in _planSnapshotRaw!) {
+      if (snap['key'] == '__meta__') {
+        // baris khusus yang menyimpan energiSisa & peringatan hasil hitungan awal
+        energiSisa = snap['energiSisa'] as int? ?? 0;
+        peringatan = (snap['peringatan'] as List?)?.cast<String>() ?? [];
+        continue;
+      }
+      final activity = state!.getActivityById(snap['key'] as String);
+      if (activity == null) continue; // activity mungkin sudah dihapus
+      items.add(PlanResultItem(
+        activity: activity,
+        round: snap['round'] as int,
+        energi: snap['energi'] as int,
+        hasilText: snap['hasil'] as String,
+      ));
+    }
+
+    return DailyPlanResult(items: items, energiSisa: energiSisa, peringatan: peringatan);
+  }
+
+  List<Map<String, dynamic>> _snapshotFromPlan(DailyPlanResult p) {
+    return [
+      ...p.items.map((i) => {
+            'key': i.activity.id,
+            'round': i.round,
+            'energi': i.energi,
+            'hasil': i.hasilText,
+          }),
+      {
+        'key': '__meta__',
+        'energiSisa': p.energiSisa,
+        'peringatan': p.peringatan,
+      },
+    ];
+  }
+
+  DailyPlanResult? get displayPlan => planResult;
 
   Future<void> _persist() async {
     await StorageServiceV2.saveState(state!);
   }
 
+  // ── Snapshot persistence ─────────────────────────────────────────────────
+
+  Future<void> _loadSnapshot() async {
+    _planSnapshotRaw = await StorageServiceV2.loadSnapshot();
+  }
+
+  Future<void> _saveSnapshot() async {
+    if (_planSnapshotRaw != null) {
+      await StorageServiceV2.saveSnapshot(_planSnapshotRaw!);
+    }
+  }
+
+  Future<void> _clearSnapshot() async {
+    _planSnapshotRaw = null;
+    await StorageServiceV2.deleteSnapshot();
+  }
+
   // ── Rollover ──────────────────────────────────────────────────────────────
 
-  void _checkRollover() {
+  Future<void> _checkRollover() async {
     final gameToday = formatGameDate(getGameDay(state!.plannerConfig.gameDayResetHour));
     if (state!.hariIniGameDate != gameToday) {
-      // Kalau task hari ini belum masuk history (belum centang semua), masukkan sekarang
       if (!state!.taskHariIniSudahSelesaiSemua && state!.activitySelesaiHariIni.isNotEmpty) {
         _commitToHistory();
       }
       state!.activitySelesaiHariIni = [];
+      state!.roundHariIniPerActivity = {};
       state!.hariIniGameDate = gameToday;
       state!.stokAwalHari = {for (final r in state!.resources) r.id: r.stok};
       state!.taskHariIniSudahSelesaiSemua = false;
+      await _clearSnapshot(); // hari baru → plan lama nggak relevan lagi
     }
   }
 
   Future<void> checkDayRollover() async {
     if (state == null) return;
     final before = state!.hariIniGameDate;
-    _checkRollover();
+    await _checkRollover();
     if (before != state!.hariIniGameDate) {
       await _persist();
       _recalcPlan();
@@ -84,9 +153,7 @@ class AppProviderV2 extends ChangeNotifier {
   // ── Resource CRUD ─────────────────────────────────────────────────────────
 
   Future<void> addResource(String nama, int target) async {
-    state!.resources.add(Resource(
-      id: _uuid.v4(), nama: nama, target: target, stok: 0,
-    ));
+    state!.resources.add(Resource(id: _uuid.v4(), nama: nama, target: target, stok: 0));
     await _persist();
     _recalcPlan();
     notifyListeners();
@@ -103,7 +170,6 @@ class AppProviderV2 extends ChangeNotifier {
 
   Future<void> deleteResource(String id) async {
     state!.resources.removeWhere((r) => r.id == id);
-    // Hapus juga referensi di activity hasil
     for (final act in state!.activities) {
       act.hasil.removeWhere((h) => h.resourceId == id);
     }
@@ -141,23 +207,19 @@ class AppProviderV2 extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ── Reorder Activity (insert & shift) ────────────────────────────────────
+  // ── Reorder Activity ──────────────────────────────────────────────────────
 
   Future<void> setActivityPriority(String activityId, int newPriority) async {
     final activity = state!.getActivityById(activityId);
     if (activity == null) return;
-
     final oldPriority = activity.prioritas;
     if (oldPriority == newPriority) return;
 
     final sorted = List<Activity>.from(state!.activities)
       ..sort((a, b) => a.prioritas.compareTo(b.prioritas));
-
     sorted.removeWhere((a) => a.id == activityId);
-
     final clampedNew = newPriority.clamp(1, sorted.length + 1);
     sorted.insert(clampedNew - 1, activity);
-
     for (int i = 0; i < sorted.length; i++) {
       sorted[i].prioritas = i + 1;
     }
@@ -170,11 +232,9 @@ class AppProviderV2 extends ChangeNotifier {
   Future<void> reorderActivityByDrag(int oldIndex, int newIndex) async {
     final sorted = List<Activity>.from(state!.activities)
       ..sort((a, b) => a.prioritas.compareTo(b.prioritas));
-
     if (newIndex > oldIndex) newIndex -= 1;
     final item = sorted.removeAt(oldIndex);
     sorted.insert(newIndex, item);
-
     for (int i = 0; i < sorted.length; i++) {
       sorted[i].prioritas = i + 1;
     }
@@ -205,6 +265,12 @@ class AppProviderV2 extends ChangeNotifier {
     );
     final round = planItem?.round ?? 0;
 
+    // Freeze plan begitu task PERTAMA dicentang hari ini
+    if (checked && _planSnapshotRaw == null && planResult != null) {
+      _planSnapshotRaw = _snapshotFromPlan(planResult!);
+      await _saveSnapshot();
+    }
+
     if (checked) {
       if (!state!.activitySelesaiHariIni.contains(activityId)) {
         state!.activitySelesaiHariIni.add(activityId);
@@ -212,6 +278,8 @@ class AppProviderV2 extends ChangeNotifier {
           final res = state!.getResourceById(h.resourceId);
           if (res != null) res.stok += h.jumlahPerRound * round;
         }
+
+        state!.roundHariIniPerActivity[activityId] = round;
         setStatus('✅ ${act.nama} — ${planItem?.hasilText}');
       }
     } else {
@@ -220,10 +288,10 @@ class AppProviderV2 extends ChangeNotifier {
         final res = state!.getResourceById(h.resourceId);
         if (res != null) res.stok -= h.jumlahPerRound * round;
       }
+      state!.roundHariIniPerActivity.remove(activityId);
       setStatus('↩ ${act.nama} dibatalkan.');
     }
 
-    // Cek apakah semua eligible activity sudah dicentang
     final eligibleIds = planResult?.items
         .where((i) => i.round > 0 || i.activity.isGratis)
         .map((i) => i.activity.id)
@@ -240,6 +308,13 @@ class AppProviderV2 extends ChangeNotifier {
 
   Future<void> tandaiSemuaSelesai() async {
     final eligible = planResult?.items.where((i) => i.round > 0 || i.activity.isGratis).toList() ?? [];
+
+    // Freeze plan kalau belum di-freeze
+    if (_planSnapshotRaw == null && planResult != null) {
+      _planSnapshotRaw = _snapshotFromPlan(planResult!);
+      await _saveSnapshot();
+    }
+
     for (final item in eligible) {
       if (!state!.activitySelesaiHariIni.contains(item.activity.id)) {
         state!.activitySelesaiHariIni.add(item.activity.id);
@@ -247,6 +322,7 @@ class AppProviderV2 extends ChangeNotifier {
           final res = state!.getResourceById(h.resourceId);
           if (res != null) res.stok += h.jumlahPerRound * item.round;
         }
+        state!.roundHariIniPerActivity[item.activity.id] = item.round;
       }
     }
     state!.taskHariIniSudahSelesaiSemua = true;
@@ -256,7 +332,7 @@ class AppProviderV2 extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ── Bonus (hanya aktif kalau sudah selesai semua) ────────────────────────
+  // ── Bonus ─────────────────────────────────────────────────────────────────
 
   bool get canInputBonus => state!.taskHariIniSudahSelesaiSemua;
 
@@ -286,12 +362,24 @@ class AppProviderV2 extends ChangeNotifier {
   // ── Reset ─────────────────────────────────────────────────────────────────
 
   Future<void> resetHariIni() async {
-    // Kembalikan stok ke snapshot awal hari, uncentang semua
-    for (final r in state!.resources) {
-      r.stok = state!.stokAwalHari[r.id] ?? r.stok;
+    for (final activityId in state!.activitySelesaiHariIni) {
+      final act = state!.getActivityById(activityId);
+      if (act == null) continue;
+      final round = state!.roundHariIniPerActivity[activityId] ?? 0;
+      if (round <= 0) continue;
+      for (final h in act.hasil) {
+        final res = state!.getResourceById(h.resourceId);
+        if (res != null) {
+          res.stok -= h.jumlahPerRound * round;
+          if (res.stok < 0) res.stok = 0;
+        }
+      }
     }
+
     state!.activitySelesaiHariIni = [];
+    state!.roundHariIniPerActivity = {};
     state!.taskHariIniSudahSelesaiSemua = false;
+    await _clearSnapshot(); // reset → plan boleh dihitung ulang lagi
     await _persist();
     _recalcPlan();
     setStatus('🔄 Hari ini direset.');
@@ -304,8 +392,10 @@ class AppProviderV2 extends ChangeNotifier {
     }
     state!.history = [];
     state!.activitySelesaiHariIni = [];
+    state!.roundHariIniPerActivity = {};
     state!.taskHariIniSudahSelesaiSemua = false;
     state!.stokAwalHari = {for (final r in state!.resources) r.id: 0};
+    await _clearSnapshot();
     await _persist();
     _recalcPlan();
     setStatus('🔄 Semua direset.');
@@ -316,11 +406,7 @@ class AppProviderV2 extends ChangeNotifier {
 
   Map<String, dynamic> exportConfigJson() {
     return {
-      'resources': state!.resources.map((r) => {
-        'id': r.id,
-        'nama': r.nama,
-        'target': r.target,
-      }).toList(),
+      'resources': state!.resources.map((r) => {'id': r.id, 'nama': r.nama, 'target': r.target}).toList(),
       'activities': state!.activities.map((a) => a.toJson()).toList(),
       'planner_config': state!.plannerConfig.toJson(),
     };
@@ -334,37 +420,30 @@ class AppProviderV2 extends ChangeNotifier {
   }
 
   Future<bool> pickAndImportFile() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['json'],
-    );
+    final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['json']);
     if (result == null || result.files.single.path == null) return false;
-
     final file = File(result.files.single.path!);
     final content = await file.readAsString();
     final json = jsonDecode(content) as Map<String, dynamic>;
-
     return _applyImport(json);
   }
 
   bool _applyImport(Map<String, dynamic> json) {
     try {
       final newResources = (json['resources'] as List).map((r) => Resource(
-        id: r['id'],
-        nama: r['nama'],
-        target: r['target'] ?? 0,
-        stok: 0, // selalu reset 0
+        id: r['id'], nama: r['nama'], target: r['target'] ?? 0, stok: 0,
       )).toList();
-
       final newActivities = (json['activities'] as List).map((a) => Activity.fromJson(a)).toList();
 
       state!.resources = newResources;
       state!.activities = newActivities;
       state!.plannerConfig = PlannerConfig.fromJson(json['planner_config']);
       state!.activitySelesaiHariIni = [];
+      state!.roundHariIniPerActivity = {};
       state!.taskHariIniSudahSelesaiSemua = false;
       state!.stokAwalHari = {for (final r in newResources) r.id: 0};
 
+      _clearSnapshot();
       _persist();
       _recalcPlan();
       setStatus('✅ Config berhasil di-import.');

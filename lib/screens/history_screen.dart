@@ -15,7 +15,7 @@ class HistoryScreen extends StatelessWidget {
       backgroundColor: kBG,
       appBar: AppBar(
         backgroundColor: kBG3,
-        title: const Text('📜 History', style: TextStyle(color: kAccent, fontSize: 16)),
+        title: const Text('History', style: TextStyle(color: kAccent, fontSize: 16)),
         iconTheme: const IconThemeData(color: kAccent),
       ),
       body: history.isEmpty

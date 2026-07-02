@@ -35,148 +35,151 @@ String _formatHasil(Activity act, int round, AppState state) {
   return parts.join(', ');
 }
 
+class _AlokasiSatuHari {
+  final Activity activity;
+  final int round;
+  final int energi;
+  _AlokasiSatuHari(this.activity, this.round, this.energi);
+}
+
+List<_AlokasiSatuHari> _hitungAlokasiSatuHari({
+  required List<Activity> sortedActivities,
+  required Map<String, int> stokMap,
+  required Map<String, int> targetMap,
+  required int energiPerHari,
+  required PlannerMode mode,
+  required int sisaHariUntukRata,
+}) {
+  int energiSisa = energiPerHari;
+  final sisaHariV = max(sisaHariUntukRata, 1);
+  final hasil = <_AlokasiSatuHari>[];
+
+  for (final act in sortedActivities) {
+    if (act.isGratis) {
+      final round = act.maxRoundPerHari ?? 1;
+      hasil.add(_AlokasiSatuHari(act, round, 0));
+      for (final h in act.hasil) {
+        stokMap[h.resourceId] = (stokMap[h.resourceId] ?? 0) + h.jumlahPerRound * round;
+      }
+      continue;
+    }
+
+    int maxRoundDibutuhkan = 0;
+    for (final h in act.hasil) {
+      final target = targetMap[h.resourceId];
+      if (target == null || h.jumlahPerRound <= 0) continue;
+      final stokSaatIni = stokMap[h.resourceId] ?? 0;
+      final kekurangan = max(0, target - stokSaatIni);
+      final roundButuh = (kekurangan / h.jumlahPerRound).ceil();
+      if (roundButuh > maxRoundDibutuhkan) maxRoundDibutuhkan = roundButuh;
+    }
+
+    int roundHariIni;
+    if (mode == PlannerMode.rata) {
+      roundHariIni = (maxRoundDibutuhkan / sisaHariV).ceil();
+      final roundMaxEnergi = energiSisa ~/ act.energiPerRound;
+      roundHariIni = min(roundHariIni, roundMaxEnergi);
+    } else {
+      roundHariIni = energiSisa ~/ act.energiPerRound;
+      roundHariIni = min(roundHariIni, maxRoundDibutuhkan);
+    }
+    if (act.maxRoundPerHari != null) {
+      roundHariIni = min(roundHariIni, act.maxRoundPerHari!);
+    }
+    roundHariIni = max(0, roundHariIni);
+
+    final energi = roundHariIni * act.energiPerRound;
+    energiSisa -= energi;
+
+    hasil.add(_AlokasiSatuHari(act, roundHariIni, energi));
+
+    for (final h in act.hasil) {
+      stokMap[h.resourceId] = (stokMap[h.resourceId] ?? 0) + h.jumlahPerRound * roundHariIni;
+    }
+  }
+
+  return hasil;
+}
+
+List<String> _simulasiSisaPatch({
+  required AppState state,
+  required List<Activity> sortedActivities,
+  required List<_AlokasiSatuHari> alokasiHariIni,
+  required int sisaHari,
+}) {
+  final cfg = state.plannerConfig;
+  final targetMap = {for (final r in state.resources) r.id: r.target};
+
+  // Proyeksi stok mulai dari stok SETELAH plan hari ini diterapkan.
+  final proyeksiStok = {for (final r in state.resources) r.id: r.stok};
+  for (final a in alokasiHariIni) {
+    for (final h in a.activity.hasil) {
+      proyeksiStok[h.resourceId] = (proyeksiStok[h.resourceId] ?? 0) + h.jumlahPerRound * a.round;
+    }
+  }
+
+  for (int hariKe = 2; hariKe <= sisaHari; hariKe++) {
+    final sisaHariSaatItu = sisaHari - hariKe + 1;
+    _hitungAlokasiSatuHari(
+      sortedActivities: sortedActivities,
+      stokMap: proyeksiStok,
+      targetMap: targetMap,
+      energiPerHari: cfg.energiPerHari,
+      mode: cfg.mode,
+      sisaHariUntukRata: sisaHariSaatItu,
+    );
+  }
+
+  final peringatan = <String>[];
+  for (final res in state.resources) {
+    final stokAkhir = proyeksiStok[res.id] ?? res.stok;
+    final kekuranganAkhir = res.target - stokAkhir;
+    if (kekuranganAkhir <= 0) continue;
+    peringatan.add(
+      '${res.nama}: sampai akhir patch ($sisaHari hari lagi) diperkirakan masih kurang '
+      '$kekuranganAkhir dari target ${res.target} (proyeksi stok akhir: $stokAkhir).',
+    );
+  }
+  return peringatan;
+}
+
 DailyPlanResult hitungDailyPlan(AppState state) {
   final cfg = state.plannerConfig;
   final sisaHari = hitungSisaHari(cfg.patch.tanggalAkhir, cfg.gameDayResetHour);
-  final sisaHariV = max(sisaHari, 1);
-  int energiSisa = cfg.energiPerHari;
 
   final sortedActivities = List<Activity>.from(state.activities)
     ..sort((a, b) => a.prioritas.compareTo(b.prioritas));
 
+  final stokHariIni = {for (final r in state.resources) r.id: r.stok};
+  final targetMap = {for (final r in state.resources) r.id: r.target};
+
+  final alokasiHariIni = _hitungAlokasiSatuHari(
+    sortedActivities: sortedActivities,
+    stokMap: stokHariIni,
+    targetMap: targetMap,
+    energiPerHari: cfg.energiPerHari,
+    mode: cfg.mode,
+    sisaHariUntukRata: sisaHari,
+  );
+
   final items = <PlanResultItem>[];
-  final peringatan = <String>[];
-
-  if (cfg.mode == PlannerMode.rata) {
-    // ── MODE RATA ──────────────────────────────────────────────────────────
-    for (final act in sortedActivities) {
-      if (act.isGratis) {
-        final round = act.maxRoundPerHari ?? 1;
-        items.add(PlanResultItem(
-          activity: act, round: round, energi: 0,
-          hasilText: _formatHasil(act, round, state),
-        ));
-        continue;
-      }
-
-      int maxRoundDibutuhkan = 0;
-      for (final h in act.hasil) {
-        final res = state.getResourceById(h.resourceId);
-        if (res == null || h.jumlahPerRound <= 0) continue;
-        final kekurangan = max(0, res.target - res.stok);
-        final roundButuh = (kekurangan / h.jumlahPerRound).ceil();
-        if (roundButuh > maxRoundDibutuhkan) maxRoundDibutuhkan = roundButuh;
-      }
-
-      int roundPerHari = (maxRoundDibutuhkan / sisaHariV).ceil();
-      final roundMaxEnergi = energiSisa ~/ act.energiPerRound;
-      roundPerHari = min(roundPerHari, roundMaxEnergi);
-      if (act.maxRoundPerHari != null) {
-        roundPerHari = min(roundPerHari, act.maxRoundPerHari!);
-      }
-      roundPerHari = max(0, roundPerHari);
-
-      final energi = roundPerHari * act.energiPerRound;
-      energiSisa -= energi;
-
-      items.add(PlanResultItem(
-        activity: act, round: roundPerHari, energi: energi,
-        hasilText: _formatHasil(act, roundPerHari, state),
-      ));
-    }
-
-    // ── Cek peringatan per RESOURCE (sama seperti All-In) ──────────────────
-    final sortedResources = state.resources;
-
-    for (final res in sortedResources) {
-      final kekurangan = max(0, res.target - res.stok);
-      if (kekurangan <= 0) continue;
-
-      int produksiPerHari = 0;
-      for (final item in items) {
-        for (final h in item.activity.hasil) {
-          if (h.resourceId == res.id) {
-            produksiPerHari += h.jumlahPerRound * item.round;
-          }
-        }
-      }
-
-      if (produksiPerHari <= 0) {
-        peringatan.add('${res.nama}: alokasi energi tidak cukup');
-        continue;
-      }
-
-      final hariButuh = (kekurangan / produksiPerHari).ceil();
-      if (hariButuh > sisaHari) {
-        peringatan.add('${res.nama}: butuh ±$hariButuh hari lagi (dapat $produksiPerHari/hari), tapi sisa patch hanya $sisaHari hari.');
-      }
-    }
-  } else {
-    // ── MODE ALL-IN ────────────────────────────────────────────────────────
-    for (final act in sortedActivities) {
-      if (act.isGratis) {
-        final round = act.maxRoundPerHari ?? 1;
-        items.add(PlanResultItem(
-          activity: act, round: round, energi: 0,
-          hasilText: _formatHasil(act, round, state),
-        ));
-        continue;
-      }
-
-      int maxRoundDibutuhkan = 0;
-      for (final h in act.hasil) {
-        final res = state.getResourceById(h.resourceId);
-        if (res == null || h.jumlahPerRound <= 0) continue;
-        final kekurangan = max(0, res.target - res.stok);
-        final roundButuh = (kekurangan / h.jumlahPerRound).ceil();
-        if (roundButuh > maxRoundDibutuhkan) maxRoundDibutuhkan = roundButuh;
-      }
-
-      int roundPerHari = energiSisa ~/ act.energiPerRound;
-      roundPerHari = min(roundPerHari, maxRoundDibutuhkan);
-      if (act.maxRoundPerHari != null) {
-        roundPerHari = min(roundPerHari, act.maxRoundPerHari!);
-      }
-      roundPerHari = max(0, roundPerHari);
-
-      final energi = roundPerHari * act.energiPerRound;
-      energiSisa -= energi;
-
-      items.add(PlanResultItem(
-        activity: act, round: roundPerHari, energi: energi,
-        hasilText: _formatHasil(act, roundPerHari, state),
-      ));
-    }
-
-    // ── Cek peringatan per RESOURCE (bukan per activity) ───────────────────
-    final sortedResources = state.resources;
-
-    for (final res in sortedResources) {
-      final kekurangan = max(0, res.target - res.stok);
-      if (kekurangan <= 0) continue;
-
-      // Total produksi resource ini per hari dari SEMUA activity yang menghasilkannya
-      // (gratis dihitung penuh, energi dihitung dari round yang sudah dialokasikan di plan)
-      int produksiPerHari = 0;
-      for (final item in items) {
-        for (final h in item.activity.hasil) {
-          if (h.resourceId == res.id) {
-            produksiPerHari += h.jumlahPerRound * item.round;
-          }
-        }
-      }
-
-      if (produksiPerHari <= 0) {
-        peringatan.add('${res.nama}: alokasi energi tidak cukup.');
-        continue;
-      }
-
-      final hariButuh = (kekurangan / produksiPerHari).ceil();
-      if (hariButuh > sisaHari) {
-        peringatan.add('${res.nama}: butuh ±$hariButuh hari lagi (dapat $produksiPerHari/hari), tapi sisa patch hanya $sisaHari hari.');
-      }
-    }
+  int energiSisa = cfg.energiPerHari;
+  for (final a in alokasiHariIni) {
+    energiSisa -= a.energi;
+    items.add(PlanResultItem(
+      activity: a.activity,
+      round: a.round,
+      energi: a.energi,
+      hasilText: _formatHasil(a.activity, a.round, state),
+    ));
   }
+
+  final peringatan = _simulasiSisaPatch(
+    state: state,
+    sortedActivities: sortedActivities,
+    alokasiHariIni: alokasiHariIni,
+    sisaHari: max(sisaHari, 1),
+  );
 
   return DailyPlanResult(items: items, energiSisa: energiSisa, peringatan: peringatan);
 }
