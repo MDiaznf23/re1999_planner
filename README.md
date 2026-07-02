@@ -54,7 +54,7 @@ Planner khusus untuk farming upgrade karakter. Berbeda dari Modul 1 yang generik
 
 ### Alur Import Karakter
 
-1. Buka website [Kornblume Planner](https://mdiaznf23.github.io/kornblume_planner_json_data/), isi data yang dibutuhkan, lalu unduh file JSON hasilnya per karakter.
+1. Buka website [Kornblume Data Json Planner](https://mdiaznf23.github.io/kornblume_planner_json_data/), isi data yang dibutuhkan, lalu unduh file JSON hasilnya per karakter.
 2. Import file JSON lewat tombol Import Karakter.
 3. Aplikasi memeriksa nama karakter pada file tersebut. Kalau nama itu sudah ada di daftar karakter aktif (tidak peduli huruf besar/kecil atau spasi), import ditolak dan tidak ada data yang digabung.
 4. Kalau nama belum ada, aplikasi memecah data menjadi stage-stage (resource, insight, farming) dan menambahkannya ke daftar daily task.
