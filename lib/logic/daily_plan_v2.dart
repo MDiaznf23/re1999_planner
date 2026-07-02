@@ -143,6 +143,22 @@ List<String> _simulasiSisaPatch({
   return peringatan;
 }
 
+List<String> hitungPeringatanUntukSnapshot(AppState state, List<PlanResultItem> items) {
+  final cfg = state.plannerConfig;
+  final sisaHari = hitungSisaHari(cfg.patch.tanggalAkhir, cfg.gameDayResetHour);
+  final sortedActivities = List<Activity>.from(state.activities)
+    ..sort((a, b) => a.prioritas.compareTo(b.prioritas));
+  final alokasiHariIni = [
+    for (final i in items) _AlokasiSatuHari(i.activity, i.round, i.energi),
+  ];
+  return _simulasiSisaPatch(
+    state: state,
+    sortedActivities: sortedActivities,
+    alokasiHariIni: alokasiHariIni,
+    sisaHari: max(sisaHari, 1),
+  );
+}
+
 DailyPlanResult hitungDailyPlan(AppState state) {
   final cfg = state.plannerConfig;
   final sisaHari = hitungSisaHari(cfg.patch.tanggalAkhir, cfg.gameDayResetHour);

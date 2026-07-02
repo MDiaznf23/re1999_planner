@@ -49,13 +49,10 @@ class AppProviderV2 extends ChangeNotifier {
   DailyPlanResult _buildPlanFromSnapshot() {
     final items = <PlanResultItem>[];
     int energiSisa = 0;
-    List<String> peringatan = [];
 
     for (final snap in _planSnapshotRaw!) {
       if (snap['key'] == '__meta__') {
-        // baris khusus yang menyimpan energiSisa & peringatan hasil hitungan awal
         energiSisa = snap['energiSisa'] as int? ?? 0;
-        peringatan = (snap['peringatan'] as List?)?.cast<String>() ?? [];
         continue;
       }
       final activity = state!.getActivityById(snap['key'] as String);
@@ -68,6 +65,7 @@ class AppProviderV2 extends ChangeNotifier {
       ));
     }
 
+    final peringatan = hitungPeringatanUntukSnapshot(state!, items);
     return DailyPlanResult(items: items, energiSisa: energiSisa, peringatan: peringatan);
   }
 
