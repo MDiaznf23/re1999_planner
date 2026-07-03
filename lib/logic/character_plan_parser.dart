@@ -142,8 +142,14 @@ void mergeCharacterToState(CharacterUpgradeState state, ParsedCharacterData data
   }
 
   // Update wilderness (ambil nilai terbesar dari semua karakter aktif)
+  final dustLama = state.dailyDust;
+  final sharpLama = state.dailySharpodonty;
   if (data.dailyDust > state.dailyDust) state.dailyDust = data.dailyDust;
   if (data.dailySharpodonty > state.dailySharpodonty) {
     state.dailySharpodonty = data.dailySharpodonty;
+  }
+
+  if (state.dailyDust != dustLama || state.dailySharpodonty != sharpLama) {
+    state.wildernessSelesaiHariIni = false;
   }
 }

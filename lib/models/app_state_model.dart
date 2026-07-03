@@ -9,7 +9,7 @@ class AppState {
   List<Activity> activities;
   List<String> activitySelesaiHariIni; // id activity yang sudah dicentang
   String hariIniGameDate;
-  Map<String, int> stokAwalHari; // snapshot stok sebelum task hari ini (resourceId -> jumlah) — DEPRECATED untuk reset, lihat roundHariIniPerActivity
+  Map<String, int> stokAwalHari; // snapshot stok sebelum task hari ini (resourceId -> jumlah) 
 
   Map<String, int> roundHariIniPerActivity;
   bool taskHariIniSudahSelesaiSemua; // true kalau sudah masuk history

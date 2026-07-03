@@ -23,10 +23,6 @@ class CharacterUpgradeProvider extends ChangeNotifier {
     if (plan == null) return null;
 
     // Item yang sudah dicentang hari ini TETAP ditampilkan (grayed/selesai)
-    // walaupun stage.selesai sudah true (total run stage-nya tercapai),
-    // supaya user sempat lihat statusnya hijau/tercentang dulu sebelum
-    // "Semua Selesai" muncul. Hanya item yang BELUM dicentang hari ini dan
-    // sudah selesai duluan (misal lewat Bonus/Edit Stok) yang disembunyikan.
     final itemsAktif = plan.items
         .where((it) =>
             !it.stage.selesai || state!.stageSelesaiHariIni.contains(it.stage.id))
@@ -321,6 +317,7 @@ class CharacterUpgradeProvider extends ChangeNotifier {
       final data = parseCharacterJson(json, startPrioritas);
       mergeCharacterToState(state!, data);
 
+      await _invalidateSnapshot();
       await _persist();
       _recalcPlan();
       setStatus('✅ ${data.plan.characterNama} berhasil diimport.');
@@ -357,6 +354,10 @@ class CharacterUpgradeProvider extends ChangeNotifier {
     for (final c in state!.characters) {
       if (c.dailyDust > dustBaru) dustBaru = c.dailyDust;
       if (c.dailySharpodonty > sharpBaru) sharpBaru = c.dailySharpodonty;
+    }
+
+    if (dustBaru != state!.dailyDust || sharpBaru != state!.dailySharpodonty) {
+      state!.wildernessSelesaiHariIni = false;
     }
     state!.dailyDust = dustBaru;
     state!.dailySharpodonty = sharpBaru;
@@ -511,6 +512,12 @@ class CharacterUpgradeProvider extends ChangeNotifier {
 
   // ── Getters ───────────────────────────────────────────────────────────────
 
+  // PENTING: harus pakai `displayPlan` (bukan `planResult` mentah), karena
+  // itu yang benar-benar dirender di layar. planResult dihitung ulang dari
+  // nol tiap kali _recalcPlan() jalan (misal tiap toggle), jadi daftar
+  // itemnya bisa berubah/menyusut begitu ada stage yang baru saja selesai.
+  // Kalau semuaSelesai dicek terhadap planResult yang sudah berubah itu,
+  // hasilnya bisa tidak pernah cocok dengan apa yang user lihat & centang.
   bool get semuaSelesai {
     final plan = displayPlan;
     if (plan == null) return false;

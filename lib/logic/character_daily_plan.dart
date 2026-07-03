@@ -118,24 +118,23 @@ Map<String, int> _hitungMaterialDrivenRuns(CharacterUpgradeState state) {
       return effB.compareTo(effA); // descending: paling efisien duluan
     });
 
-    for (final s in kandidat) {
-      if (sisaDefisit <= 0) break;
-      final sisaRencana = s.totalRuns - s.runsSelesai;
-      if (sisaRencana <= 0) continue;
+    if (kandidat.isEmpty) continue;
 
-      final jumlahPerRun = s.materialsInfo
-          .firstWhere((m) => m.nama == namaMaterial)
-          .jumlahPerRun;
+    // PENTING: material ini HANYA dibebankan ke stage paling efisien
+    final s = kandidat.first;
+    final sisaRencana = s.totalRuns - s.runsSelesai;
+    if (sisaRencana <= 0) continue;
 
-      final runsButuh = (sisaDefisit / jumlahPerRun).ceil();
-      final runsDialokasikan = runsButuh < sisaRencana ? runsButuh : sisaRencana;
-      if (runsDialokasikan <= 0) continue;
+    final jumlahPerRun = s.materialsInfo
+        .firstWhere((m) => m.nama == namaMaterial)
+        .jumlahPerRun;
 
-      final existing = hasil[s.id] ?? 0;
-      if (runsDialokasikan > existing) hasil[s.id] = runsDialokasikan;
+    final runsButuh = (sisaDefisit / jumlahPerRun).ceil();
+    final runsDialokasikan = runsButuh < sisaRencana ? runsButuh : sisaRencana;
+    if (runsDialokasikan <= 0) continue;
 
-      sisaDefisit -= runsDialokasikan * jumlahPerRun;
-    }
+    final existing = hasil[s.id] ?? 0;
+    if (runsDialokasikan > existing) hasil[s.id] = runsDialokasikan;
   }
 
   return hasil;
