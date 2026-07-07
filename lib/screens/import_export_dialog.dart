@@ -26,7 +26,11 @@ void showImportExportDialog(BuildContext context) {
             Navigator.pop(context);
             if (context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Tersimpan di: $path')),
+                SnackBar(
+                  content: Text(
+                    path != null ? 'Tersimpan di: $path' : 'Export dibatalkan',
+                  ),
+                ),
               );
             }
           },

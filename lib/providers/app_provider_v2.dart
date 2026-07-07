@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
-import 'package:path_provider/path_provider.dart';
 import '../models/app_state_model.dart';
 import '../models/resource_model.dart';
 import '../models/activity_model.dart';
@@ -410,11 +410,24 @@ class AppProviderV2 extends ChangeNotifier {
     };
   }
 
-  Future<String> exportToFile() async {
-    final dir = await getApplicationDocumentsDirectory();
-    final file = File('${dir.path}/r1999_config_export.json');
-    await file.writeAsString(jsonEncode(exportConfigJson()));
-    return file.path;
+  /// Mengembalikan path file hasil export, atau null kalau user
+  /// membatalkan dialog simpan.
+  Future<String?> exportToFile() async {
+    final bytes = Uint8List.fromList(utf8.encode(jsonEncode(exportConfigJson())));
+
+    // Pakai dialog "Simpan Sebagai" native (Storage Access Framework di
+    // Android) supaya user bisa pilih sendiri lokasi yang bisa dia akses
+    // (misal Downloads), bukan otomatis ke folder privat app yang cuma
+    // bisa dibuka kalau HP di-root.
+    final savedPath = await FilePicker.platform.saveFile(
+      dialogTitle: 'Simpan config export',
+      fileName: 'r1999_config_export.json',
+      type: FileType.custom,
+      allowedExtensions: ['json'],
+      bytes: bytes,
+    );
+
+    return savedPath;
   }
 
   Future<bool> pickAndImportFile() async {
